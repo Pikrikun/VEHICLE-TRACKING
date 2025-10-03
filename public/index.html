@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vehicle Tracking - Live GPS</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; }
+        
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        #map {
+            height: 70vh;
+            width: 100%;
+        }
+        
+        .vehicle-list {
+            background: white;
+            padding: 15px;
+            max-height: 30vh;
+            overflow-y: auto;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .vehicle-item {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .vehicle-item:last-child {
+            border-bottom: none;
+        }
+        
+        .vehicle-info { 
+            font-weight: bold; 
+            color: #2c3e50;
+            font-size: 16px;
+        }
+        
+        .vehicle-location { 
+            color: #666; 
+            font-size: 12px;
+            margin-top: 4px;
+        }
+        
+        .live-badge { 
+            background: #e74c3c; 
+            color: white; 
+            padding: 4px 12px; 
+            border-radius: 15px; 
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .speed {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        
+        .last-update {
+            font-size: 11px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚗 LIVE VEHICLE TRACKING</h1>
+        <p>Real-time GPS Tracking System - Powered by OpenStreetMap</p>
+    </div>
+    
+    <div id="map"></div>
+    
+    <div class="vehicle-list" id="vehicleList">
+        <div class="vehicle-item">
+            <div>
+                <div class="vehicle-info">Loading vehicles...</div>
+                <div class="vehicle-location">System initializing</div>
+            </div>
+            <span class="live-badge">CONNECTING</span>
+        </div>
+    </div>
+
+    <!-- OPENSTREETMAP - NO API KEY NEEDED -->
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        let map;
+        let markers = {};
+        const socket = io();
+
+        // Initialize OpenStreetMap - GRATIS TANPA API KEY
+        function initMap() {
+            map = L.map('map').setView([-6.2088, 106.8456], 13);
+            
+            // Tambahkan tile layer OpenStreetMap
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+            
+            console.log('✅ OpenStreetMap loaded successfully!');
+            loadVehicles();
+        }
+
+        // Load vehicles data
+        async function loadVehicles() {
+            try {
+                const response = await fetch('/api/vehicles');
+                const vehicles = await response.json();
+                
+                updateVehicleList(vehicles);
+                updateVehicleMarkers(vehicles);
+            } catch (error) {
+                console.error('Error loading vehicles:', error);
+            }
+        }
+
+        function updateVehicleMarkers(vehicles) {
+            vehicles.forEach(vehicle => {
+                const position = [vehicle.latitude, vehicle.longitude];
+                
+                if (markers[vehicle.plat_nomor]) {
+                    // Update existing marker position
+                    markers[vehicle.plat_nomor].setLatLng(position);
+                    
+                    // Update popup content
+                    markers[vehicle.plat_nomor].setPopupContent(`
+                        <b>${vehicle.plat_nomor}</b><br>
+                        Speed: <span style="color: green">${vehicle.speed} km/h</span><br>
+                        Last update: ${new Date(vehicle.last_update).toLocaleTimeString()}
+                    `);
+                } else {
+                    // Create new marker
+                    markers[vehicle.plat_nomor] = L.marker(position)
+                        .addTo(map)
+                        .bindPopup(`
+                            <b>${vehicle.plat_nomor}</b><br>
+                            Speed: <span style="color: green">${vehicle.speed} km/h</span><br>
+                            Last update: ${new Date(vehicle.last_update).toLocaleTimeString()}
+                        `)
+                        .openPopup();
+                }
+            });
+        }
+
+        function updateVehicleList(vehicles) {
+            const vehicleList = document.getElementById('vehicleList');
+            vehicleList.innerHTML = '';
+            
+            if (vehicles.length === 0) {
+                vehicleList.innerHTML = `
+                    <div class="vehicle-item">
+                        <div>
+                            <div class="vehicle-info">No vehicles found</div>
+                            <div class="vehicle-location">Waiting for GPS data...</div>
+                        </div>
+                        <span class="live-badge">OFFLINE</span>
+                    </div>
+                `;
+                return;
+            }
+            
+            vehicles.forEach(vehicle => {
+                const lastUpdate = new Date(vehicle.last_update).toLocaleTimeString();
+                
+                const vehicleElement = document.createElement('div');
+                vehicleElement.className = 'vehicle-item';
+                vehicleElement.innerHTML = `
+                    <div>
+                        <div class="vehicle-info">${vehicle.plat_nomor}</div>
+                        <div class="vehicle-location">
+                            📍 Lat: ${vehicle.latitude.toFixed(6)}, Lng: ${vehicle.longitude.toFixed(6)}<br>
+                            🚀 Speed: <span class="speed">${vehicle.speed} km/h</span><br>
+                            <span class="last-update">Last update: ${lastUpdate}</span>
+                        </div>
+                    </div>
+                    <span class="live-badge">LIVE</span>
+                `;
+                vehicleList.appendChild(vehicleElement);
+            });
+        }
+
+        // Socket.io real-time updates
+        socket.on('position_update', (data) => {
+            console.log('📍 Real-time update:', data);
+            loadVehicles(); // Refresh data
+        });
+
+        // Initialize map when page loads
+        window.addEventListener('load', initMap);
+
+        // Auto refresh every 3 seconds
+        setInterval(loadVehicles, 3000);
+
+        // Simulate vehicle movement (DEMO PURPOSE)
+        setInterval(() => {
+            const vehicles = ['B 1234 ABC', 'B 5678 XYZ', 'B 9999 DEMO'];
+            const vehicle = vehicles[Math.floor(Math.random() * vehicles.length)];
+            
+            // Generate random position around Jakarta
+            const mockData = {
+                plat_nomor: vehicle,
+                latitude: -6.2088 + (Math.random() - 0.5) * 0.02,
+                longitude: 106.8456 + (Math.random() - 0.5) * 0.02,
+                speed: Math.floor(Math.random() * 80)
+            };
+            
+            // Send update to server
+            fetch('/api/update-position', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(mockData)
+            }).then(response => {
+                console.log('📡 Sent GPS data:', mockData);
+            });
+        }, 4000);
+
+        // Status connection
+        socket.on('connect', () => {
+            console.log('✅ Connected to server');
+            document.querySelector('.live-badge').textContent = 'LIVE';
+        });
+
+        socket.on('disconnect', () => {
+            console.log('❌ Disconnected from server');
+            document.querySelector('.live-badge').textContent = 'OFFLINE';
+        });
+
+    </script>
+</body>
+</html>
